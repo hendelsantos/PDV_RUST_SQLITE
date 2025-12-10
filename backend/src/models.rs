@@ -118,7 +118,9 @@ pub struct Tenant {
     pub status: String,
     pub business_type: Option<String>,
     pub reseller_id: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
+    pub created_at: String,
+    pub custom_fields: Option<String>, // JSON string
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +138,7 @@ pub struct UpdateTenantRequest {
     pub plan_id: Option<String>,
     pub status: Option<String>,
     pub business_type: Option<String>,
+    pub custom_fields: Option<String>, // JSON string
 }
 
 #[derive(Debug, Deserialize)]

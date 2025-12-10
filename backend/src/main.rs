@@ -64,6 +64,13 @@ async fn main() {
         .route("/", get(handlers::customers::list_customers).post(handlers::customers::create_customer))
         .route_layer(axum_middleware::from_fn(middleware::auth_middleware));
 
+    // Metrics Routes (Protected)
+    let metrics_routes = Router::new()
+        .route("/overview", get(handlers::metrics::get_overview))
+        .route("/sales-trend", get(handlers::metrics::get_sales_trend))
+        .route("/top-products", get(handlers::metrics::get_top_products))
+        .route("/inventory-alerts", get(handlers::metrics::get_inventory_alerts))
+        .route_layer(axum_middleware::from_fn(middleware::auth_middleware));
 
     // Combine routes
     let app = Router::new()
@@ -73,6 +80,7 @@ async fn main() {
         .nest("/products", product_routes)
         .nest("/sales", sales_routes)
         .nest("/customers", customer_routes)
+        .nest("/metrics", metrics_routes)
 
         .layer(CorsLayer::permissive()) // Enable CORS for all
         .with_state(pool);

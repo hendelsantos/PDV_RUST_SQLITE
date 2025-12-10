@@ -27,14 +27,18 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Pencil, Trash2 } from "lucide-react";
+import { businessTypes, getBusinessTypeLabel, getBusinessTypeConfig } from "@/lib/businessTypes";
+import CustomFieldsForm from "@/components/CustomFieldsForm";
 
 interface Tenant {
     id: string;
     name: string;
-    business_type?: string;
-    status: string;
-    created_at: string;
     plan_id?: string;
+    status: string;
+    business_type?: string;
+    created_at: string;
+    custom_fields?: string; // JSON string
+    updated_at?: string;
 }
 
 export default function Tenants() {
@@ -59,6 +63,16 @@ export default function Tenants() {
     const [newTenantType, setNewTenantType] = useState("retail");
     const [ownerEmail, setOwnerEmail] = useState("");
     const [ownerPassword, setOwnerPassword] = useState("");
+    const [customFields, setCustomFields] = useState<Record<string, any>>({});
+
+    const handleCustomFieldChange = (name: string, value: any) => {
+        setCustomFields(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleBusinessTypeChange = (type: string) => {
+        setNewTenantType(type);
+        setCustomFields({}); // Reset custom fields when type changes
+    };
 
     // Edit State
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -66,6 +80,16 @@ export default function Tenants() {
     const [editName, setEditName] = useState("");
     const [editType, setEditType] = useState("");
     const [editStatus, setEditStatus] = useState("");
+    const [editCustomFields, setEditCustomFields] = useState<Record<string, any>>({});
+
+    const handleEditCustomFieldChange = (name: string, value: any) => {
+        setEditCustomFields(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleEditBusinessTypeChange = (type: string) => {
+        setEditType(type);
+        setEditCustomFields({}); // Reset when type changes
+    };
 
     const handleCreateTenant = async () => {
         if (!newTenantName || !ownerEmail || !ownerPassword) {
@@ -78,17 +102,19 @@ export default function Tenants() {
                 name: newTenantName,
                 business_type: newTenantType,
                 owner_email: ownerEmail,
-                owner_password: ownerPassword
+                owner_password: ownerPassword,
+                custom_fields: JSON.stringify(customFields)
             });
             setIsCreateOpen(false);
             setNewTenantName("");
             setOwnerEmail("");
             setOwnerPassword("");
+            setCustomFields({});
             fetchTenants();
             alert("Loja criada com sucesso!");
         } catch (error) {
             console.error("Failed to create tenant", error);
-            alert("Erro ao criar tenant");
+            alert("Erro ao criar loja.");
         }
     };
 
@@ -97,6 +123,15 @@ export default function Tenants() {
         setEditName(tenant.name);
         setEditType(tenant.business_type || "retail");
         setEditStatus(tenant.status);
+
+        // Parse custom_fields if exists
+        try {
+            const fields = tenant.custom_fields ? JSON.parse(tenant.custom_fields) : {};
+            setEditCustomFields(fields);
+        } catch {
+            setEditCustomFields({});
+        }
+
         setIsEditOpen(true);
     };
 
@@ -106,7 +141,8 @@ export default function Tenants() {
             await api.put(`/admin/tenants/${editingTenant.id}`, {
                 name: editName,
                 business_type: editType,
-                status: editStatus
+                status: editStatus,
+                custom_fields: JSON.stringify(editCustomFields)
             });
             setIsEditOpen(false);
             setEditingTenant(null);
@@ -114,7 +150,7 @@ export default function Tenants() {
             alert("Loja atualizada!");
         } catch (error) {
             console.error("Failed to update tenant", error);
-            alert("Erro ao atualizar loja");
+            alert("Erro ao atualizar loja.");
         }
     };
 
@@ -153,17 +189,25 @@ export default function Tenants() {
                             </div>
                             <div className="space-y-2">
                                 <Label>Tipo de Negócio</Label>
-                                <Select value={newTenantType} onValueChange={setNewTenantType}>
+                                <Select value={newTenantType} onValueChange={handleBusinessTypeChange}>
                                     <SelectTrigger>
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="retail">Varejo (Padrão)</SelectItem>
-                                        <SelectItem value="service">Serviços</SelectItem>
-                                        <SelectItem value="food">Alimentação</SelectItem>
+                                        {businessTypes.map((type) => (
+                                            <SelectItem key={type.value} value={type.value}>
+                                                {type.label}
+                                            </SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
+
+                            <CustomFieldsForm
+                                fields={getBusinessTypeConfig(newTenantType)?.customFields || []}
+                                values={customFields}
+                                onChange={handleCustomFieldChange}
+                            />
 
                             <div className="border-t pt-4 mt-4">
                                 <h4 className="text-sm font-semibold mb-3">Dados do Lojista (Dono)</h4>
@@ -212,17 +256,26 @@ export default function Tenants() {
                             </div>
                             <div className="space-y-2">
                                 <Label>Tipo de Negócio</Label>
-                                <Select value={editType} onValueChange={setEditType}>
+                                <Select value={editType} onValueChange={handleEditBusinessTypeChange}>
                                     <SelectTrigger>
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="retail">Varejo</SelectItem>
-                                        <SelectItem value="service">Serviços</SelectItem>
-                                        <SelectItem value="food">Alimentação</SelectItem>
+                                        {businessTypes.map((type) => (
+                                            <SelectItem key={type.value} value={type.value}>
+                                                {type.label}
+                                            </SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
+
+                            <CustomFieldsForm
+                                fields={getBusinessTypeConfig(editType)?.customFields || []}
+                                values={editCustomFields}
+                                onChange={handleEditCustomFieldChange}
+                            />
+
                             <div className="space-y-2">
                                 <Label>Status</Label>
                                 <Select value={editStatus} onValueChange={setEditStatus}>
@@ -260,8 +313,7 @@ export default function Tenants() {
                             <TableRow key={tenant.id}>
                                 <TableCell className="font-medium">{tenant.name}</TableCell>
                                 <TableCell>
-                                    {tenant.business_type === 'service' ? 'Serviços' :
-                                        tenant.business_type === 'food' ? 'Alimentação' : 'Varejo'}
+                                    {getBusinessTypeLabel(tenant.business_type || 'retail')}
                                 </TableCell>
                                 <TableCell>
                                     <Badge variant={tenant.status === 'active' ? 'default' : 'secondary'}>

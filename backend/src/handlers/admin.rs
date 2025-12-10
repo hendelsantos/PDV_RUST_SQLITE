@@ -175,6 +175,10 @@ pub async fn update_tenant(
         builder.push(", business_type = ");
         builder.push_bind(business_type);
     }
+    if let Some(custom_fields) = &payload.custom_fields {
+        builder.push(", custom_fields = ");
+        builder.push_bind(custom_fields);
+    }
 
     builder.push(" WHERE id = ");
     builder.push_bind(id);
