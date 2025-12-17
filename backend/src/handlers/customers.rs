@@ -3,13 +3,13 @@ use axum::{
     response::IntoResponse,
     http::StatusCode,
 };
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use uuid::Uuid;
 use crate::models::{Customer, CreateCustomerRequest};
 use crate::auth::Claims;
 
 pub async fn list_customers(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     // If tenant_id is in claims, filter by it.
@@ -23,7 +23,7 @@ pub async fn list_customers(
         None => return (StatusCode::FORBIDDEN, "Tenant ID missing").into_response(),
     };
 
-    let customers = sqlx::query_as::<_, Customer>("SELECT * FROM customers WHERE tenant_id = ?")
+    let customers = sqlx::query_as::<_, Customer>("SELECT * FROM customers WHERE tenant_id = $1")
         .bind(tenant_id)
         .fetch_all(&pool)
         .await;
@@ -38,7 +38,7 @@ pub async fn list_customers(
 }
 
 pub async fn create_customer(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateCustomerRequest>,
 ) -> impl IntoResponse {

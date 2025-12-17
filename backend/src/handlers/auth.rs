@@ -1,88 +1,123 @@
-use axum::{
-    Json,
-    response::IntoResponse,
-    http::StatusCode,
-    extract::State,
-};
-use sqlx::SqlitePool;
-use crate::models::{CreateUserRequest, LoginRequest, AuthResponse, User};
 use crate::auth;
+use crate::models::{AuthResponse, CreateUserRequest, LoginRequest, User};
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 pub async fn register(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Json(payload): Json<CreateUserRequest>,
 ) -> impl IntoResponse {
     let password_hash = match auth::hash_password(&payload.password) {
         Ok(hash) => hash,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to hash password").into_response(),
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to hash password").into_response();
+        }
     };
 
-    let user_id = Uuid::new_v4().to_string();
-    let tenant_id = Uuid::new_v4().to_string(); 
+    let user_id = Uuid::new_v4();
+    let tenant_id = Uuid::new_v4();
 
-    let result = sqlx::query("INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)")
-        .bind(&user_id)
-        .bind(&payload.email)
-        .bind(&password_hash)
-        .bind(payload.role.unwrap_or_else(|| "user".to_string()))
-        .bind(&tenant_id)
-        .execute(&pool)
-        .await;
+    let result = sqlx::query(
+        "INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(&payload.email)
+    .bind(&password_hash)
+    .bind(payload.role.unwrap_or_else(|| "user".to_string()))
+    .bind(tenant_id)
+    .execute(&pool)
+    .await;
 
     match result {
         Ok(_) => (StatusCode::CREATED, "User created successfully").into_response(),
         Err(e) => {
-            if e.to_string().contains("UNIQUE constraint failed") {
-                 (StatusCode::CONFLICT, "Email already exists").into_response()
+            // PostgreSQL unique constraint error code is 23505
+            if e.to_string().contains("23505") || e.to_string().contains("duplicate key") {
+                (StatusCode::CONFLICT, "Email already exists").into_response()
             } else {
-                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response()
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {}", e),
+                )
+                    .into_response()
             }
         }
     }
 }
 
 pub async fn login(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Json(payload): Json<LoginRequest>,
 ) -> impl IntoResponse {
-    // Note: We need to select tenant_id to put in the token claims ideally, or just user_id
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = ?")
-        .bind(&payload.email)
-        .fetch_optional(&pool)
-        .await;
+    let user = sqlx::query_as::<_, User>(
+        "SELECT id::text, email, password_hash, role, tenant_id::text as tenant_id, created_at FROM users WHERE email = $1"
+    )
+    .bind(&payload.email)
+    .fetch_optional(&pool)
+    .await;
 
     match user {
         Ok(Some(user)) => {
             if auth::verify_password(&user.password_hash, &payload.password) {
                 // Fetch tenant info to get business_type
-                let business_type = if let Some(tenant_id) = &user.tenant_id {
-                    let tenant = sqlx::query!("SELECT business_type FROM tenants WHERE id = ?", tenant_id)
-                        .fetch_optional(&pool)
-                        .await
-                        .unwrap_or(None); // Ignore error, just None
-                    tenant.and_then(|t| t.business_type)
+                let business_type = if let Some(ref tenant_id_str) = user.tenant_id {
+                    let tenant_uuid = match Uuid::parse_str(tenant_id_str) {
+                        Ok(uuid) => uuid,
+                        Err(_) => {
+                            return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid tenant ID")
+                                .into_response();
+                        }
+                    };
+
+                    let tenant: Option<(Option<String>,)> =
+                        sqlx::query_as("SELECT business_type FROM tenants WHERE id = $1")
+                            .bind(tenant_uuid)
+                            .fetch_optional(&pool)
+                            .await
+                            .unwrap_or(None);
+
+                    tenant.and_then(|(bt,)| bt)
                 } else {
                     None
                 };
 
-                let token = match auth::create_jwt(&user.id, user.tenant_id.as_deref(), &user.role, b"secret") { 
+                let token = match auth::create_jwt(
+                    &user.id,
+                    user.tenant_id.as_deref(),
+                    &user.role,
+                    b"secret",
+                ) {
                     Ok(t) => t,
-                    Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to generate token").into_response(),
+                    Err(_) => {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Failed to generate token",
+                        )
+                            .into_response();
+                    }
                 };
 
-                (StatusCode::OK, Json(AuthResponse { 
-                    token,
-                    role: user.role,
-                    business_type,
-                    email: user.email,
-                    name: None 
-                })).into_response()
+                (
+                    StatusCode::OK,
+                    Json(AuthResponse {
+                        token,
+                        role: user.role,
+                        business_type,
+                        email: user.email,
+                        name: None,
+                    }),
+                )
+                    .into_response()
             } else {
                 (StatusCode::UNAUTHORIZED, "Invalid credentials").into_response()
             }
         }
         Ok(None) => (StatusCode::UNAUTHORIZED, "Invalid credentials").into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+            .into_response(),
     }
 }

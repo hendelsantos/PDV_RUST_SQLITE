@@ -3,19 +3,19 @@ use axum::{
     response::IntoResponse,
     http::StatusCode,
 };
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use uuid::Uuid;
 use crate::models::{Plan, CreatePlanRequest, Tenant, CreateTenantRequest};
 use crate::auth::Claims;
 
 pub async fn create_plan(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Json(payload): Json<CreatePlanRequest>,
 ) -> impl IntoResponse {
     let id = Uuid::new_v4().to_string();
 
     let result = sqlx::query(
-        "INSERT INTO plans (id, name, price, max_users, features) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO plans (id, name, price, max_users, features) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(&id)
     .bind(&payload.name)
@@ -35,7 +35,7 @@ pub async fn create_plan(
 }
 
 pub async fn list_plans(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
 ) -> impl IntoResponse {
     let plans = sqlx::query_as::<_, Plan>("SELECT * FROM plans")
         .fetch_all(&pool)
@@ -51,7 +51,7 @@ pub async fn list_plans(
 }
 
 pub async fn create_tenant(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateTenantRequest>,
 ) -> impl IntoResponse {
@@ -70,7 +70,7 @@ pub async fn create_tenant(
     };
 
     let result = sqlx::query(
-        "INSERT INTO tenants (id, name, plan_id, business_type, reseller_id) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO tenants (id, name, plan_id, business_type, reseller_id) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(&id)
     .bind(&payload.name)
@@ -92,7 +92,7 @@ pub async fn create_tenant(
             Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to hash password").into_response(),
         };
 
-        let user_result = sqlx::query("INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)")
+        let user_result = sqlx::query("INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES ($1, $2, $3, $4, $5)")
             .bind(&user_id)
             .bind(email)
             .bind(&password_hash)
@@ -113,7 +113,7 @@ pub async fn create_tenant(
 }
 
 pub async fn list_tenants(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     let query = if claims.role == "reseller" {
@@ -136,7 +136,7 @@ pub async fn list_tenants(
 }
 
 pub async fn update_tenant(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
     Json(payload): Json<crate::models::UpdateTenantRequest>,
@@ -146,7 +146,7 @@ pub async fn update_tenant(
     }
     // Verify ownership if reseller
     if claims.role == "reseller" {
-         let exists = sqlx::query("SELECT 1 FROM tenants WHERE id = ? AND reseller_id = ?")
+         let exists = sqlx::query("SELECT 1 FROM tenants WHERE id = $1 AND reseller_id = ?")
              .bind(&id)
              .bind(&claims.sub)
              .fetch_optional(&pool)
@@ -192,13 +192,13 @@ pub async fn update_tenant(
 }
 
 pub async fn delete_tenant(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     if claims.role != "admin" { // Only admin can delete for now? Or reseller too? Let's allow reseller to delete THEIR tenants
         if claims.role == "reseller" {
-             let exists = sqlx::query("SELECT 1 FROM tenants WHERE id = ? AND reseller_id = ?")
+             let exists = sqlx::query("SELECT 1 FROM tenants WHERE id = $1 AND reseller_id = ?")
                  .bind(&id)
                  .bind(&claims.sub)
                  .fetch_optional(&pool)
@@ -214,7 +214,7 @@ pub async fn delete_tenant(
 
     // Cascade delete users? Generally handled by DB FKs if configured, but here we might need manual
     // Let's just delete tenant and assume DB is robust or we don't care about orphans for prototype
-    let result = sqlx::query("DELETE FROM tenants WHERE id = ?")
+    let result = sqlx::query("DELETE FROM tenants WHERE id = $1")
         .bind(&id)
         .execute(&pool)
         .await;
@@ -226,7 +226,7 @@ pub async fn delete_tenant(
 }
 
 pub async fn create_reseller(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<crate::models::CreateUserRequest>,
 ) -> impl IntoResponse {
@@ -243,7 +243,7 @@ pub async fn create_reseller(
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to hash password").into_response(),
     };
 
-    let result = sqlx::query("INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)")
+    let result = sqlx::query("INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES ($1, $2, $3, $4, $5)")
         .bind(&user_id)
         .bind(&payload.email)
         .bind(&password_hash)
@@ -261,7 +261,7 @@ pub async fn create_reseller(
     }
 }
 pub async fn list_resellers(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     if claims.role != "admin" {
@@ -286,7 +286,7 @@ pub async fn list_resellers(
 }
 
 pub async fn create_user_admin(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<crate::models::CreateUserRequest>,
 ) -> impl IntoResponse {
@@ -308,7 +308,7 @@ pub async fn create_user_admin(
 
     let role = payload.role.unwrap_or_else(|| "user".to_string());
 
-    let result = sqlx::query("INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES (?, ?, ?, ?, ?)")
+    let result = sqlx::query("INSERT INTO users (id, email, password_hash, role, tenant_id) VALUES ($1, $2, $3, $4, $5)")
         .bind(&user_id)
         .bind(&payload.email)
         .bind(&password_hash)
@@ -333,7 +333,7 @@ pub async fn create_user_admin(
 }
 
 pub async fn list_users(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     if claims.role != "admin" {
@@ -354,7 +354,7 @@ pub async fn list_users(
 }
 
 pub async fn update_user(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
     Json(payload): Json<crate::models::UpdateUserRequest>,
@@ -392,7 +392,7 @@ pub async fn update_user(
 }
 
 pub async fn delete_user(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -416,7 +416,7 @@ pub async fn delete_user(
         return (StatusCode::CONFLICT, "Cannot delete user: This user is a Reseller with linked Tenants. Delete the Tenants (Lojas) first.").into_response();
     }
 
-    let result = sqlx::query("DELETE FROM users WHERE id = ?")
+    let result = sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(&id)
         .execute(&pool)
         .await;

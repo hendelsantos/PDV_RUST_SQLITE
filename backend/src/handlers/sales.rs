@@ -4,17 +4,17 @@ use axum::{
     http::StatusCode,
     extract::{State, Extension},
 };
-use sqlx::{SqlitePool, Row, FromRow};
+use sqlx::{PgPool, Row, FromRow};
 use crate::models::{CreateSaleRequest, Sale};
 use uuid::Uuid;
 use crate::auth::Claims;
 use serde::Serialize;
 
 pub async fn list_sales(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
-    let sales = sqlx::query_as::<_, Sale>("SELECT * FROM sales WHERE tenant_id = ? ORDER BY created_at DESC")
+    let sales = sqlx::query_as::<_, Sale>("SELECT * FROM sales WHERE tenant_id = $1 ORDER BY created_at DESC")
         .bind(&claims.tenant_id)
         .fetch_all(&pool)
         .await;
@@ -26,7 +26,7 @@ pub async fn list_sales(
 }
 
 pub async fn create_sale(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateSaleRequest>,
 ) -> impl IntoResponse {
@@ -41,7 +41,7 @@ pub async fn create_sale(
     // Validate items and calculate total
     for item in &payload.items {
         // Fetch product to get price and check stock
-        let product = sqlx::query("SELECT price, stock_quantity FROM products WHERE id = ? AND tenant_id = ?")
+        let product = sqlx::query("SELECT price, stock_quantity FROM products WHERE id = $1 AND tenant_id = ?")
             .bind(&item.product_id)
             .bind(&claims.tenant_id)
             .fetch_optional(&mut *tx)
@@ -61,7 +61,7 @@ pub async fn create_sale(
                 total_amount += subtotal;
 
                 // Update stock
-                let update_stock = sqlx::query("UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?")
+                let update_stock = sqlx::query("UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = $1")
                     .bind(item.quantity)
                     .bind(&item.product_id)
                     .execute(&mut *tx)
@@ -132,7 +132,7 @@ pub struct DashboardStats {
 }
 
 pub async fn get_dashboard_stats(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     let tenant_id = match claims.tenant_id {
@@ -141,7 +141,7 @@ pub async fn get_dashboard_stats(
     };
 
     // Calculate total revenue
-    let revenue_row: (i32,) = sqlx::query_as("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE tenant_id = ?")
+    let revenue_row: (i32,) = sqlx::query_as("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE tenant_id = $1")
         .bind(&tenant_id)
         .fetch_one(&pool)
         .await
@@ -150,7 +150,7 @@ pub async fn get_dashboard_stats(
     let total_revenue = revenue_row.0;
 
     // Calculate sales count
-    let count_row: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM sales WHERE tenant_id = ?")
+    let count_row: (i32,) = sqlx::query_as("SELECT COUNT(*) FROM sales WHERE tenant_id = $1")
         .bind(&tenant_id)
         .fetch_one(&pool)
         .await
@@ -159,7 +159,7 @@ pub async fn get_dashboard_stats(
     let sales_count = count_row.0;
 
     // Fetch recent sales (last 5)
-    let recent_sales = sqlx::query_as::<_, Sale>("SELECT * FROM sales WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 5")
+    let recent_sales = sqlx::query_as::<_, Sale>("SELECT * FROM sales WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 5")
         .bind(&tenant_id)
         .fetch_all(&pool)
         .await

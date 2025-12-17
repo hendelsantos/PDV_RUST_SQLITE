@@ -1,8 +1,11 @@
+-- PostgreSQL version
 CREATE TABLE IF NOT EXISTS plans (
-    id TEXT PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL,
     price INTEGER NOT NULL, -- in cents
     max_users INTEGER NOT NULL DEFAULT 1,
-    features TEXT, -- JSON string
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    features JSONB, -- Using JSONB for better performance
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_plans_name ON plans(name);

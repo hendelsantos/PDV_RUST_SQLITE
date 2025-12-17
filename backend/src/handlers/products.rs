@@ -4,17 +4,17 @@ use axum::{
     http::StatusCode,
     extract::{State, Extension},
 };
-use sqlx::{SqlitePool, Row};
+use sqlx::{PgPool, Row};
 use crate::models::{CreateProductRequest, Product};
 use uuid::Uuid;
 use crate::auth::Claims;
 
 pub async fn list_products(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> impl IntoResponse {
     // Filter by tenant_id from claims
-    let products = sqlx::query_as::<_, Product>("SELECT * FROM products WHERE tenant_id = ?")
+    let products = sqlx::query_as::<_, Product>("SELECT * FROM products WHERE tenant_id = $1")
         .bind(&claims.tenant_id)
         .fetch_all(&pool)
         .await;
@@ -26,7 +26,7 @@ pub async fn list_products(
 }
 
 pub async fn create_product(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
     Json(payload): Json<CreateProductRequest>,
 ) -> impl IntoResponse {

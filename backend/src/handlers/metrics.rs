@@ -5,7 +5,7 @@ use axum::{
     Extension,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::auth::Claims;
 
@@ -44,14 +44,14 @@ pub struct InventoryAlert {
 /// GET /api/metrics/overview
 /// Retorna métricas gerais do negócio
 pub async fn get_overview(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<MetricsOverview>, StatusCode> {
     let tenant_id = &claims.tenant_id;
 
     // Total de receita
     let total_revenue: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE tenant_id = ?"
+        "SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE tenant_id = $1"
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -60,7 +60,7 @@ pub async fn get_overview(
 
     // Número de vendas
     let sales_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sales WHERE tenant_id = ?"
+        "SELECT COUNT(*) FROM sales WHERE tenant_id = $1"
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -76,7 +76,7 @@ pub async fn get_overview(
 
     // Número de produtos
     let products_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM products WHERE tenant_id = ?"
+        "SELECT COUNT(*) FROM products WHERE tenant_id = $1"
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -85,7 +85,7 @@ pub async fn get_overview(
 
     // Número de clientes
     let customers_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM customers WHERE tenant_id = ?"
+        "SELECT COUNT(*) FROM customers WHERE tenant_id = $1"
     )
     .bind(tenant_id)
     .fetch_one(&pool)
@@ -104,7 +104,7 @@ pub async fn get_overview(
 /// GET /api/metrics/sales-trend?days=7
 /// Retorna tendência de vendas dos últimos N dias
 pub async fn get_sales_trend(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<SalesTrendPoint>>, StatusCode> {
     let tenant_id = &claims.tenant_id;
@@ -117,7 +117,7 @@ pub async fn get_sales_trend(
             COALESCE(SUM(total_amount), 0) as revenue,
             COUNT(*) as sales_count
         FROM sales 
-        WHERE tenant_id = ? 
+        WHERE tenant_id = $1 
         AND created_at >= datetime('now', '-7 days')
         GROUP BY DATE(created_at)
         ORDER BY date ASC
@@ -143,7 +143,7 @@ pub async fn get_sales_trend(
 /// GET /api/metrics/top-products?limit=5
 /// Retorna os produtos mais vendidos
 pub async fn get_top_products(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<TopProduct>>, StatusCode> {
     let tenant_id = &claims.tenant_id;
@@ -185,7 +185,7 @@ pub async fn get_top_products(
 /// GET /api/metrics/inventory-alerts
 /// Retorna produtos com estoque baixo
 pub async fn get_inventory_alerts(
-    State(pool): State<SqlitePool>,
+    State(pool): State<PgPool>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Vec<InventoryAlert>>, StatusCode> {
     let tenant_id = &claims.tenant_id;
@@ -197,7 +197,7 @@ pub async fn get_inventory_alerts(
             name as product_name,
             stock as current_stock
         FROM products
-        WHERE tenant_id = ?
+        WHERE tenant_id = $1
         AND stock <= 10
         ORDER BY stock ASC
         LIMIT 10
