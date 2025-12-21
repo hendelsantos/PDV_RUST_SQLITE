@@ -1,9 +1,4 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    Extension,
-};
+use axum::{Extension, extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -50,22 +45,19 @@ pub async fn get_overview(
     let tenant_id = &claims.tenant_id;
 
     // Total de receita
-    let total_revenue: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE tenant_id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let total_revenue: i64 =
+        sqlx::query_scalar("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE tenant_id = $1")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Número de vendas
-    let sales_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sales WHERE tenant_id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let sales_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sales WHERE tenant_id = $1")
+        .bind(tenant_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Ticket médio
     let average_ticket = if sales_count > 0 {
@@ -75,22 +67,20 @@ pub async fn get_overview(
     };
 
     // Número de produtos
-    let products_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM products WHERE tenant_id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let products_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE tenant_id = $1")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Número de clientes
-    let customers_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM customers WHERE tenant_id = $1"
-    )
-    .bind(tenant_id)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let customers_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM customers WHERE tenant_id = $1")
+            .bind(tenant_id)
+            .fetch_one(&pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(MetricsOverview {
         total_revenue,
@@ -113,15 +103,15 @@ pub async fn get_sales_trend(
     let trend = sqlx::query_as::<_, (String, i64, i64)>(
         r#"
         SELECT 
-            DATE(created_at) as date,
+            TO_CHAR(created_at, 'YYYY-MM-DD') as date,
             COALESCE(SUM(total_amount), 0) as revenue,
             COUNT(*) as sales_count
         FROM sales 
         WHERE tenant_id = $1 
-        AND created_at >= datetime('now', '-7 days')
-        GROUP BY DATE(created_at)
+        AND created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
         ORDER BY date ASC
-        "#
+        "#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -158,11 +148,11 @@ pub async fn get_top_products(
         FROM sale_items si
         JOIN sales s ON si.sale_id = s.id
         JOIN products p ON si.product_id = p.id
-        WHERE s.tenant_id = ?
+        WHERE s.tenant_id = $1
         GROUP BY si.product_id, p.name
         ORDER BY quantity_sold DESC
         LIMIT 5
-        "#
+        "#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)
@@ -171,12 +161,14 @@ pub async fn get_top_products(
 
     let result = top_products
         .into_iter()
-        .map(|(product_id, product_name, quantity_sold, revenue)| TopProduct {
-            product_id,
-            product_name,
-            quantity_sold,
-            revenue,
-        })
+        .map(
+            |(product_id, product_name, quantity_sold, revenue)| TopProduct {
+                product_id,
+                product_name,
+                quantity_sold,
+                revenue,
+            },
+        )
         .collect();
 
     Ok(Json(result))
@@ -201,7 +193,7 @@ pub async fn get_inventory_alerts(
         AND stock <= 10
         ORDER BY stock ASC
         LIMIT 10
-        "#
+        "#,
     )
     .bind(tenant_id)
     .fetch_all(&pool)

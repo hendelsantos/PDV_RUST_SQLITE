@@ -1,13 +1,13 @@
+use crate::auth::Claims;
+use crate::models::{CreateProductRequest, Product};
 use axum::{
     Json,
-    response::IntoResponse,
+    extract::{Extension, State},
     http::StatusCode,
-    extract::{State, Extension},
+    response::IntoResponse,
 };
 use sqlx::{PgPool, Row};
-use crate::models::{CreateProductRequest, Product};
 use uuid::Uuid;
-use crate::auth::Claims;
 
 pub async fn list_products(
     State(pool): State<PgPool>,
@@ -21,7 +21,11 @@ pub async fn list_products(
 
     match products {
         Ok(products) => (StatusCode::OK, Json(products)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+            .into_response(),
     }
 }
 
@@ -32,7 +36,7 @@ pub async fn create_product(
 ) -> impl IntoResponse {
     let product_id = Uuid::new_v4().to_string();
 
-    let result = sqlx::query("INSERT INTO products (id, tenant_id, name, description, price, stock_quantity, sku) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    let result = sqlx::query("INSERT INTO products (id, tenant_id, name, description, price, stock_quantity, sku) VALUES ($1, $2, $3, $4, $5, $6, $7)")
         .bind(&product_id)
         .bind(&claims.tenant_id)
         .bind(&payload.name)
@@ -45,6 +49,10 @@ pub async fn create_product(
 
     match result {
         Ok(_) => (StatusCode::CREATED, Json(product_id)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+            .into_response(),
     }
 }
